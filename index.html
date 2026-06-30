@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bergwetter Tirol – Dein alpiner Wetterbegleiter</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Bergwetter Tirol - Live-Wetterdaten, Wetterradar, Unwetterwarnungen, GPS-Ortung, Höhenanpassung und alpiner Notruf-Assistent für Tirol.">
+    <meta name="keywords" content="Bergwetter, Tirol, Wetterradar, Unwetterwarnung, GPS, Notruf, Zugspitze, Innsbruck, Alpen, Wandern, Wetter">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet.js CSS (Karte) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="weather-clear-day">
+    <div class="background-overlay"></div>
+    
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header glass-panel">
+            <div class="header-logo">
+                <i class="fa-solid fa-mountain-sun logo-icon"></i>
+                <div class="logo-text">
+                    <h1>Bergwetter Tirol</h1>
+                    <p>Alpine Wetterstation & Notruf-Assistent</p>
+                </div>
+            </div>
+            
+            <div class="search-and-gps">
+                <button id="gps-button" class="btn btn-primary" title="Aktuellen Standort über GPS bestimmen">
+                    <i class="fa-solid fa-location-crosshairs"></i> <span>GPS Ortung</span>
+                </button>
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="Ort oder Gipfel suchen..." autocomplete="off">
+                    <button id="search-button" class="btn btn-secondary">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </button>
+                    <div id="search-results" class="search-results-dropdown glass-panel hidden"></div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Schnellwahl / Gipfel-Presets -->
+        <section class="presets-section glass-panel">
+            <h2><i class="fa-solid fa-compass-drafting"></i> Schnellwahl Tirol</h2>
+            <div class="preset-buttons">
+                <button class="preset-btn" data-lat="47.2627" data-lon="11.3945" data-elevation="574" data-name="Innsbruck">Innsbruck (574m)</button>
+                <button class="preset-btn" data-lat="47.4211" data-lon="10.9849" data-elevation="2962" data-name="Zugspitze">Zugspitze (2962m)</button>
+                <button class="preset-btn" data-lat="46.8897" data-lon="10.8719" data-elevation="3768" data-name="Wildspitze">Wildspitze (3768m)</button>
+                <button class="preset-btn" data-lat="47.2084" data-lon="11.4608" data-elevation="2246" data-name="Patscherkofel">Patscherkofel (2246m)</button>
+                <button class="preset-btn" data-lat="47.0319" data-lon="11.6962" data-elevation="3476" data-name="Olperer">Olperer (3476m)</button>
+                <button class="preset-btn" data-lat="47.0818" data-lon="12.6948" data-elevation="3798" data-name="Großglockner">Großglockner (3798m)</button>
+                <button class="preset-btn" data-lat="47.4464" data-lon="12.3917" data-elevation="762" data-name="Kitzbühel">Kitzbühel (762m)</button>
+                <button class="preset-btn" data-lat="47.1312" data-lon="10.2685" data-elevation="1304" data-name="St. Anton am Arlberg">St. Anton (1304m)</button>
+            </div>
+        </section>
+
+        <!-- Warnungen (Unwetter) -->
+        <section id="alerts-section" class="alerts-section glass-panel hidden">
+            <div class="alert-header">
+                <i class="fa-solid fa-triangle-exclamation warning-icon animate-pulse"></i>
+                <h3>Unwetterwarnungen</h3>
+            </div>
+            <div id="alerts-container"></div>
+        </section>
+
+        <!-- Hauptlayout: Wetter-Details & Karte -->
+        <main class="main-layout">
+            <!-- Linker Bereich: Aktuelles Wetter, Slider, Notruf -->
+            <div class="sidebar-column">
+                <!-- Aktuelle Wetterstation -->
+                <section class="current-weather-panel glass-panel">
+                    <div class="station-meta">
+                        <h2 id="current-location-name">Innsbruck</h2>
+                        <span id="current-station-coords" class="coords-badge"><i class="fa-solid fa-map-pin"></i> 47.26° N, 11.39° O</span>
+                    </div>
+                    
+                    <div class="weather-hero">
+                        <div class="weather-hero-left">
+                            <span id="current-temp" class="large-temp">--°C</span>
+                            <span id="current-weather-desc" class="weather-desc">Lade Wetter...</span>
+                        </div>
+                        <div class="weather-hero-right">
+                            <i id="current-weather-icon" class="fa-solid fa-cloud-sun hero-weather-icon"></i>
+                        </div>
+                    </div>
+
+                    <div class="weather-details-grid">
+                        <div class="detail-item" id="feel-temp-box">
+                            <i class="fa-solid fa-temperature-half"></i>
+                            <div class="detail-info">
+                                <span class="detail-label">Gefühlt</span>
+                                <span id="current-feel-temp" class="detail-val">--°C</span>
+                            </div>
+                        </div>
+                        <div class="detail-item" id="wind-box">
+                            <i id="wind-arrow-icon" class="fa-solid fa-arrow-up-long"></i>
+                            <div class="detail-info">
+                                <span class="detail-label">Wind / Böen</span>
+                                <span id="current-wind" class="detail-val">-- km/h</span>
+                            </div>
+                        </div>
+                        <div class="detail-item" id="humidity-box">
+                            <i class="fa-solid fa-droplet"></i>
+                            <div class="detail-info">
+                                <span class="detail-label">Feuchtigkeit</span>
+                                <span id="current-humidity" class="detail-val">--%</span>
+                            </div>
+                        </div>
+                        <div class="detail-item" id="pressure-box">
+                            <i class="fa-solid fa-gauge-high"></i>
+                            <div class="detail-info">
+                                <span class="detail-label">Luftdruck (QNH)</span>
+                                <span id="current-pressure" class="detail-val">-- hPa</span>
+                            </div>
+                        </div>
+                        <div class="detail-item" id="uv-box">
+                            <i class="fa-solid fa-sun"></i>
+                            <div class="detail-info">
+                                <span class="detail-label">UV-Index</span>
+                                <span id="current-uv" class="detail-val">--</span>
+                            </div>
+                        </div>
+                        <div class="detail-item" id="snow-depth-box">
+                            <i class="fa-solid fa-snowflake"></i>
+                            <div class="detail-info">
+                                <span class="detail-label">Schneehöhe</span>
+                                <span id="current-snow-depth" class="detail-val">-- cm</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Höhenanpassung-Slider -->
+                <section class="altitude-slider-panel glass-panel">
+                    <h3><i class="fa-solid fa-arrow-up-right-dots"></i> Höhen-Wetter-Simulator</h3>
+                    <p class="section-desc">Simuliere den Temperatursturz und Windzuwachs für Gipfellagen (\(-0.65^\circ\text{C}\) pro 100m).</p>
+                    
+                    <div class="slider-wrapper">
+                        <span class="slider-min">500m</span>
+                        <input type="range" id="altitude-slider" min="500" max="4000" step="50" value="574">
+                        <span class="slider-max">4000m</span>
+                    </div>
+
+                    <div class="slider-readout">
+                        <div class="readout-box">
+                            <span class="readout-label">Reale Höhe</span>
+                            <span id="real-altitude-val" class="readout-val">574m</span>
+                        </div>
+                        <div class="readout-box highlight">
+                            <span class="readout-label">Simulierte Höhe</span>
+                            <span id="simulated-altitude-val" class="readout-val">574m</span>
+                        </div>
+                    </div>
+
+                    <div class="simulation-outputs">
+                        <div class="sim-metric">
+                            <span>Temperatur-Effekt:</span>
+                            <span id="sim-temp-diff" class="sim-val">0.0 °C</span>
+                        </div>
+                        <div class="sim-metric">
+                            <span>Simulierte Temperatur:</span>
+                            <strong id="sim-temp-val" class="sim-val font-mono">--°C</strong>
+                        </div>
+                        <div class="sim-metric">
+                            <span>Simulierter Wind:</span>
+                            <strong id="sim-wind-val" class="sim-val font-mono">-- km/h</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Alpiner Notruf-Assistent -->
+                <section class="emergency-panel glass-panel">
+                    <div class="emergency-header">
+                        <i class="fa-solid fa-kit-medical emergency-icon"></i>
+                        <h3>Alpiner Notruf-Assistent</h3>
+                    </div>
+                    
+                    <div class="emergency-location-info">
+                        <div class="coord-row">
+                            <span class="coord-label">GPS-Breite:</span>
+                            <span id="em-lat" class="coord-val font-mono">--</span>
+                        </div>
+                        <div class="coord-row">
+                            <span class="coord-label">GPS-Länge:</span>
+                            <span id="em-lon" class="coord-val font-mono">--</span>
+                        </div>
+                        <div class="coord-row">
+                            <span class="coord-label">DMS (Grad, Min, Sek):</span>
+                            <span id="em-dms" class="coord-val font-mono small-text">--</span>
+                        </div>
+                        <div class="coord-row">
+                            <span class="coord-label">Höhe:</span>
+                            <span id="em-alt" class="coord-val font-mono">--</span>
+                        </div>
+                    </div>
+
+                    <div class="emergency-contacts">
+                        <a href="tel:140" class="emergency-btn alpine-rescue">
+                            <i class="fa-solid fa-phone-volume"></i> Bergrettung Österreich (140)
+                        </a>
+                        <a href="tel:112" class="emergency-btn euro-emergency">
+                            <i class="fa-solid fa-phone"></i> Euro-Notruf (112)
+                        </a>
+                    </div>
+
+                    <div class="emergency-signal">
+                        <h4><i class="fa-solid fa-bullhorn"></i> Alpines Notsignal</h4>
+                        <p><strong>Geben:</strong> 6-mal pro Minute in regelmäßigen Abständen ein Signal (Licht oder Schall), dann 1 Minute Pause. Wiederholen.</p>
+                        <p><strong>Antwort:</strong> 3-mal pro Minute ein Signal, dann 1 Minute Pause.</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Rechter Bereich: Radar & Vorhersagen -->
+            <div class="content-column">
+                <!-- Wetterradar -->
+                <section class="radar-panel glass-panel">
+                    <div class="radar-header">
+                        <h3><i class="fa-solid fa-satellite-dish"></i> Live-Niederschlagsradar</h3>
+                        <div id="radar-timestamp" class="radar-timestamp">Lade Radar...</div>
+                    </div>
+                    
+                    <div class="radar-container">
+                        <div id="radar-map"></div>
+                        <div class="radar-legend glass-panel">
+                            <span class="legend-title">Radar-Echos</span>
+                            <div class="legend-scale">
+                                <span class="scale-bar"></span>
+                                <div class="scale-labels">
+                                    <span>Niesel</span>
+                                    <span>Hagel/Gewitter</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="radar-controls">
+                        <button id="radar-play-btn" class="btn btn-circle" title="Wiedergabe/Pause">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                        <div class="radar-timeline-wrapper">
+                            <input type="range" id="radar-timeline" min="0" max="12" step="1" value="12">
+                            <div class="timeline-labels">
+                                <span>vor 2 Std</span>
+                                <span>Jetzt</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Spezial-Beratungs-Features (Packliste & UV) -->
+                <section class="mountain-features-grid">
+                    <!-- Dynamische Packliste -->
+                    <div class="feature-card glass-panel" id="packing-card">
+                        <h3><i class="fa-solid fa-backpack"></i> Dynamische Packliste</h3>
+                        <p class="card-desc">Basierend auf dem aktuellen Wetter am Standort:</p>
+                        <ul id="packing-list" class="packing-list">
+                            <li>Lade Wetterdaten...</li>
+                        </ul>
+                    </div>
+
+                    <!-- UV-Schutz-Ratgeber -->
+                    <div class="feature-card glass-panel" id="uv-card">
+                        <h3><i class="fa-solid fa-user-shield"></i> UV- & Höhenstrahlung</h3>
+                        <p class="card-desc">Strahlungsintensität in Höhenlagen:</p>
+                        <div id="uv-advice-container">
+                            <div class="uv-gauge">
+                                <span id="uv-gauge-val" class="uv-gauge-num">--</span>
+                                <span id="uv-gauge-level" class="uv-gauge-txt">Lade...</span>
+                            </div>
+                            <div id="uv-protection-tips" class="uv-tips">
+                                UV-Schutztipps werden berechnet.
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Stündliche Vorhersage -->
+                <section class="hourly-forecast-panel glass-panel">
+                    <h3><i class="fa-regular fa-clock"></i> Stündlicher Verlauf (Nächste 24 Std)</h3>
+                    <div id="hourly-container" class="hourly-scroll-container">
+                        <!-- Wird per JS befüllt -->
+                    </div>
+                </section>
+
+                <!-- 7-Tage Vorhersage -->
+                <section class="daily-forecast-panel glass-panel">
+                    <h3><i class="fa-regular fa-calendar-days"></i> 7-Tage-Bergwettervorhersage</h3>
+                    <div id="daily-container" class="daily-forecast-list">
+                        <!-- Wird per JS befüllt -->
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <footer class="app-footer glass-panel">
+            <p>&copy; 2026 Bergwetter Tirol. Daten bereitgestellt von <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> und Radarbilder von <a href="https://www.rainviewer.com/api.html" target="_blank" rel="noopener">RainViewer</a>. Kartenmaterial von <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
+        </footer>
+    </div>
+
+    <!-- Leaflet.js (Karten-Skript) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Custom JS -->
+    <script src="app.js"></script>
+</body>
+</html>
