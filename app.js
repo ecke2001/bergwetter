@@ -16,10 +16,16 @@ const state = {
     marker: null,
     radarLayers: [],
     radarTimes: [],
-    radarHost: 'https://tilecache.rainviewer.com',
-    currentRadarIndex: 12, // Standardmäßig die neueste (letzte) Kachel
+    radarHost: 'https://api.librewxr.net',
+    currentRadarIndex: 12, // Standardmäßig Nowcast 0 (Jetzt)
     radarInterval: null,
-    isRadarPlaying: false
+    isRadarPlaying: false,
+    selectedRadarSchemeId: 6, // Standardmäßig NEXRAD Level III
+    
+    // Warnings & Avalanche State
+    officialWarnings: null,
+    currentDistrictPrefix: "701", // Innsbruck-Stadt default
+    avalancheData: null
 };
 
 // WMO Wettercode Übersetzung & Icons
@@ -63,10 +69,51 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function initApp() {
+    registerServiceWorker();
+    setupOfflineDetection();
     setupEventListeners();
     initMap();
-    selectLocation(state.lat, state.lon, state.realElevation, state.name);
+    
+    // Warnungen & Lawinendaten vorab laden, danach Standort auswählen
+    Promise.all([
+        fetchOfficialWarnings(),
+        fetchAvalancheReport()
+    ]).finally(() => {
+        const prefix = getDistrictPrefix(state.name);
+        selectLocation(state.lat, state.lon, state.realElevation, state.name, prefix);
+    });
+    
     initRadar();
+}
+
+// Service Worker registrieren
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('PWA Service Worker registriert:', reg))
+                .catch(err => console.error('Service Worker Registrierung fehlgeschlagen:', err));
+        });
+    }
+}
+
+// Offline-Erkennung
+function setupOfflineDetection() {
+    function updateOnlineStatus() {
+        const banner = document.getElementById("offline-banner");
+        const timeSpan = document.getElementById("offline-time");
+        if (navigator.onLine) {
+            banner.classList.add("hidden");
+        } else {
+            const now = new Date();
+            timeSpan.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+            banner.classList.remove("hidden");
+        }
+    }
+    
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
 }
 
 // Event-Listener registrieren
@@ -86,7 +133,8 @@ function setupEventListeners() {
             const elevation = parseInt(btn.dataset.elevation);
             const name = btn.dataset.name;
             
-            selectLocation(lat, lon, elevation, name);
+            const prefix = getDistrictPrefix(name);
+            selectLocation(lat, lon, elevation, name, prefix);
         });
     });
     
@@ -132,21 +180,27 @@ function setupEventListeners() {
         const index = parseInt(e.target.value);
         showRadarFrame(index);
     });
+
+    // Farbschema-Wechsel
+    document.getElementById("radar-scheme-select").addEventListener("change", (e) => {
+        state.selectedRadarSchemeId = parseInt(e.target.value);
+        setupRadarLayers();
+    });
 }
 
 // Leaflet Karte initialisieren
 function initMap() {
-    // Standardmäßig auf Tirol zentrieren
+    // Auf Tirol zentrieren
     state.map = L.map("radar-map", {
         zoomControl: true,
         attributionControl: false,
-        maxZoom: 7, // Begrenzt Zoom auf das von der freien RainViewer API unterstützte Maximum
+        maxZoom: 18,
         minZoom: 4
-    }).setView([47.2627, 11.3945], 6);
+    }).setView([47.2627, 11.3945], 8);
     
     // Dunkles Karten-Theme von CartoDB (passt gut zum Glassmorphism)
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        maxZoom: 7
+        maxZoom: 18
     }).addTo(state.map);
     
     // Marker für aktuellen Standort
@@ -183,17 +237,18 @@ function handleGPSLocation() {
                         .then(res => res.json())
                         .then(geo => {
                             const name = geo.address.city || geo.address.town || geo.address.village || geo.address.suburb || "Dein Standort";
-                            selectLocation(lat, lon, elevation, name);
+                            const prefix = getDistrictPrefix(name, null, geo.address.suburb || geo.address.village, geo.address.postcode, geo.address.county);
+                            selectLocation(lat, lon, elevation, name, prefix);
                             resetGPSButton(gpsBtn, originalText);
                         })
                         .catch(() => {
-                            selectLocation(lat, lon, elevation, "Dein Standort");
+                            selectLocation(lat, lon, elevation, "Dein Standort", null);
                             resetGPSButton(gpsBtn, originalText);
                         });
                 })
                 .catch(err => {
                     console.error(err);
-                    selectLocation(lat, lon, 1000, "Dein Standort");
+                    selectLocation(lat, lon, 1000, "Dein Standort", null);
                     resetGPSButton(gpsBtn, originalText);
                 });
         },
@@ -233,7 +288,6 @@ function performSearch(query) {
                 // Nur Ergebnisse aus Österreich / nahes Umland zulassen
                 const country = item.country || "";
                 const admin1 = item.admin1 || "";
-                const isAustria = country === "Österreich" || country === "Austria";
                 
                 const itemEl = document.createElement("div");
                 itemEl.className = "search-item";
@@ -247,7 +301,8 @@ function performSearch(query) {
                 
                 itemEl.addEventListener("click", () => {
                     document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
-                    selectLocation(item.latitude, item.longitude, Math.round(item.elevation || 500), item.name);
+                    const prefix = getDistrictPrefix(item.name, item.admin3, item.admin4, item.postcodes ? item.postcodes[0] : null, null);
+                    selectLocation(item.latitude, item.longitude, Math.round(item.elevation || 500), item.name, prefix);
                     resultsDiv.classList.add("hidden");
                     document.getElementById("search-input").value = item.name;
                 });
@@ -263,12 +318,13 @@ function performSearch(query) {
 }
 
 // Einen Standort auswählen (Presets, GPS oder Suche)
-function selectLocation(lat, lon, elevation, name) {
+function selectLocation(lat, lon, elevation, name, districtPrefix) {
     state.lat = lat;
     state.lon = lon;
     state.realElevation = elevation;
     state.simulatedElevation = elevation;
     state.name = name;
+    state.currentDistrictPrefix = districtPrefix || getDistrictPrefix(name);
     
     // UI aktualisieren
     document.getElementById("current-location-name").textContent = name;
@@ -281,11 +337,15 @@ function selectLocation(lat, lon, elevation, name) {
     updateSimulatedElevation(elevation);
     
     // Karte zentrieren & Marker verschieben
-    state.map.setView([lat, lon], 7);
+    state.map.setView([lat, lon], 10);
     state.marker.setLatLng([lat, lon]);
     
     // Wetterdaten laden
     fetchWeatherData(lat, lon);
+    
+    // Warnungs- & Lawinen-Anzeigen aktualisieren
+    updateAlerts();
+    updateAvalancheUI();
 }
 
 // Wetterdaten von Open-Meteo laden
@@ -337,7 +397,7 @@ function updateWeatherUI() {
     
     // Hauptanzeige befüllen
     document.getElementById("current-weather-desc").textContent = weatherInfo.desc;
-    document.getElementById("current-weather-icon").className = `fa-solid ${iconClass} hero-weather-icon`;
+    document.getElementById("current-weather-icon").src = getWeatherIconUrl(code, isNight);
     
     // Windrichtung-Pfeil drehen
     const windDir = current.wind_direction_10m;
@@ -467,43 +527,118 @@ function updateAlerts() {
     const section = document.getElementById("alerts-section");
     container.innerHTML = "";
     
-    // Die kostenlose Open-Meteo-API liefert standardmäßig keine nationalen Unwetterwarnungen direkt aus.
-    // Wir simulieren bzw. berechnen jedoch kritische Alarmschwellen basierend auf Windböen, Niederschlag und Temperatur
-    // für den Alpinraum, um dem Wunsch nach "Unwetterwarnung" gerecht zu werden.
-    const warnings = [];
+    if (!state.weatherData) return;
+    
+    const alertsToShow = [];
+    
+    // 1. Offizielle GeoSphere Austria Warnungen
+    if (state.officialWarnings && state.officialWarnings.features) {
+        const prefix = state.currentDistrictPrefix;
+        
+        state.officialWarnings.features.forEach(feat => {
+            const props = feat.properties;
+            if (!props || !props.gemeinden) return;
+            
+            // Prüfen ob Warnung den aktuellen Bezirk betrifft (Kennzahl beginnt mit z.B. 703)
+            const matchesDistrict = props.gemeinden.some(g => g.toString().startsWith(prefix));
+            // Prüfen ob es eine Tiroler Warnung ist (Kennzahl beginnt mit 7)
+            const isTyrol = props.gemeinden.some(g => g.toString().startsWith("7"));
+            
+            if (matchesDistrict || isTyrol) {
+                const wtypeMap = {
+                    1: { name: "Sturm", icon: "fa-wind" },
+                    2: { name: "Starkregen", icon: "fa-cloud-showers-heavy" },
+                    3: { name: "Schneefall", icon: "fa-snowflake" },
+                    4: { name: "Glatteis", icon: "fa-icicles" },
+                    5: { name: "Gewitter", icon: "fa-cloud-bolt" },
+                    6: { name: "Hitze/Kälte", icon: "fa-temperature-high" },
+                    7: { name: "Nebel", icon: "fa-smog" }
+                };
+                
+                const wlevelMap = {
+                    1: { name: "Gelb (Wetterwarnung)", levelClass: "level-yellow" },
+                    2: { name: "Orange (Markante Warnung)", levelClass: "level-orange" },
+                    3: { name: "Rot (Akute Warnung)", levelClass: "level-red" }
+                };
+                
+                const typeInfo = wtypeMap[props.wtype] || { name: "Unwetter", icon: "fa-triangle-exclamation" };
+                const levelInfo = wlevelMap[props.wlevel] || { name: "Warnung", levelClass: "level-yellow" };
+                
+                const startDate = new Date(props.start * 1000);
+                const endDate = new Date(props.end * 1000);
+                
+                const formatTime = (d) => {
+                    return `${d.toLocaleDateString('de-AT')} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
+                };
+                
+                const timeString = `Gültig von ${formatTime(startDate)} bis ${formatTime(endDate)} Uhr`;
+                
+                const districtNameMap = {
+                    "701": "Innsbruck-Stadt",
+                    "702": "Imst",
+                    "703": "Innsbruck-Land",
+                    "704": "Kitzbühel",
+                    "705": "Kufstein",
+                    "706": "Landeck",
+                    "707": "Lienz (Osttirol)",
+                    "708": "Reutte",
+                    "709": "Schwaz"
+                };
+                
+                const affectedDistrict = districtNameMap[prefix] || state.name;
+                const titleText = matchesDistrict 
+                    ? `Offizielle ${typeInfo.name}-Warnung für Bezirk ${affectedDistrict}` 
+                    : `Offizielle ${typeInfo.name}-Warnung in Tirol`;
+                
+                alertsToShow.push({
+                    title: `<i class="fa-solid ${typeInfo.icon}"></i> ${titleText} (${levelInfo.name})`,
+                    desc: `${timeString}. Bitte passe deine Tourenplanung an und beachte die alpinen Risiken im betroffenen Gebiet.`,
+                    levelClass: levelInfo.levelClass,
+                    isOfficial: true,
+                    isLocal: matchesDistrict
+                });
+            }
+        });
+    }
+    
+    // Lokale Warnungen zuerst anzeigen
+    alertsToShow.sort((a, b) => {
+        if (a.isLocal && !b.isLocal) return -1;
+        if (!a.isLocal && b.isLocal) return 1;
+        return 0;
+    });
+    
+    // 2. Rechnerische Alpinrisiken (basierend auf Live-Wetterstation)
     const current = state.weatherData.current;
-    
-    if (current.wind_gusts_10m > 70) {
-        warnings.push({
-            title: "Sturmwarnung / Orkanböen im Hochgebirge",
-            desc: `Gemessene Böen betragen aktuell ${Math.round(current.wind_gusts_10m)} km/h. Gefahr durch Windwurf und Absturz! Bergtouren dringend meiden.`
-        });
-    } else if (current.wind_gusts_10m > 50) {
-        warnings.push({
-            title: "Markanter Wind im Gebirge",
-            desc: `Es treten Windböen bis zu ${Math.round(current.wind_gusts_10m)} km/h auf. Erhöhte Auskühlungsgefahr (Windchill-Effekt) und Gleichgewichtsverlust auf Graten.`
-        });
+    if (current) {
+        if (current.wind_speed_10m > 50 || current.wind_gusts_10m > 70) {
+            alertsToShow.push({
+                title: `<i class="fa-solid fa-wind"></i> Alpin-Risiko: Orkanböen am Berg`,
+                desc: `Gemessene Böen liegen bei ${Math.round(current.wind_gusts_10m || current.wind_speed_10m * 1.3)} km/h. Hohe Sturz- und Auskühlungsgefahr auf Graten!`,
+                levelClass: "level-simulated"
+            });
+        }
+        if (current.precipitation > 5) {
+            alertsToShow.push({
+                title: `<i class="fa-solid fa-cloud-showers-heavy"></i> Alpin-Risiko: Starker Niederschlag`,
+                desc: `Aktueller Niederschlag beträgt ${current.precipitation} mm/h. Erhöhte Muren- und Rutschgefahr an steilen Hängen!`,
+                levelClass: "level-simulated"
+            });
+        }
+        if (current.weather_code === 95 || current.weather_code === 96 || current.weather_code === 99) {
+            alertsToShow.push({
+                title: `<i class="fa-solid fa-cloud-bolt"></i> Alpin-Risiko: Akute Blitzschlaggefahr`,
+                desc: `Gewitter gemeldet. Verlasse unverzüglich ausgesetzte Grate und Gipfel!`,
+                levelClass: "level-simulated"
+            });
+        }
     }
     
-    if (current.precipitation > 5) {
-        warnings.push({
-            title: "Starkregen / Lawinengefahr (Nassschnee)",
-            desc: "Erheblicher Niederschlag im Gange. Rutschige Wege, Gefahr von Muren und schnellem Temperatursturz mit Gewittern."
-        });
-    }
-    
-    if (current.weather_code === 95 || current.weather_code === 96 || current.weather_code === 99) {
-        warnings.push({
-            title: "Akute Gewitterwarnung am Berg",
-            desc: "Blitzschlaggefahr im exponierten Gelände. Sofortige Schutzmaßnahmen ergreifen (Gipfel verlassen, Grate meiden, Schutzhütten aufsuchen)."
-        });
-    }
-
-    if (warnings.length > 0) {
+    if (alertsToShow.length > 0) {
         section.classList.remove("hidden");
-        warnings.forEach(alert => {
+        alertsToShow.forEach(alert => {
             const card = document.createElement("div");
-            card.className = "alert-card";
+            card.className = `alert-card ${alert.levelClass}`;
             card.innerHTML = `
                 <div class="alert-title">${alert.title}</div>
                 <div class="alert-description">${alert.desc}</div>
@@ -513,6 +648,183 @@ function updateAlerts() {
     } else {
         section.classList.add("hidden");
     }
+}
+
+// Offizielle GeoSphere Warnungen laden
+function fetchOfficialWarnings() {
+    return fetch("https://warnungen.zamg.at/wsapp/api/getWarnstatus")
+        .then(res => res.json())
+        .then(data => {
+            state.officialWarnings = data;
+        })
+        .catch(err => {
+            console.error("GeoSphere Warnungen konnten nicht geladen werden:", err);
+        });
+}
+
+// Offiziellen Lawinenlagebericht laden (Euregio)
+function fetchAvalancheReport() {
+    return fetch("https://avalanche.report/bulletins/latest/EUREGIO_de_CAAMLv6.json")
+        .then(res => res.json())
+        .then(data => {
+            state.avalancheData = data;
+        })
+        .catch(err => {
+            console.error("Lawinenbericht konnte nicht geladen werden:", err);
+        });
+}
+
+// Lawinen-Widget befüllen
+function updateAvalancheUI() {
+    const container = document.getElementById("avalanche-content");
+    if (!container) return;
+    
+    if (!state.avalancheData || !state.avalancheData.bulletins) {
+        container.innerHTML = `<div class="avalanche-loading"><i class="fa-solid fa-triangle-exclamation"></i> Lagebericht derzeit nicht verfügbar.</div>`;
+        return;
+    }
+    
+    // Finde das Bulletin für Tirol (Bulletin mit Regionen mit AT-07 IDs)
+    const tyrolBulletin = state.avalancheData.bulletins.find(b => 
+        b.regions && b.regions.some(r => r.regionID && r.regionID.startsWith("AT-07"))
+    );
+    
+    if (!tyrolBulletin) {
+        container.innerHTML = `<div class="avalanche-loading">Kein Lagebericht für Tirol verfügbar.</div>`;
+        return;
+    }
+    
+    // Danger-Level (maximales Rating im Tiroler Bulletin)
+    const dangerMap = {
+        "low": { val: 1, name: "Gering", class: "level-1" },
+        "moderate": { val: 2, name: "Mäßig", class: "level-2" },
+        "considerable": { val: 3, name: "Erheblich", class: "level-3" },
+        "high": { val: 4, name: "Groß", class: "level-4" },
+        "very_high": { val: 5, name: "Sehr groß", class: "level-5" }
+    };
+    
+    let maxDanger = { val: 0, name: "Gering", class: "level-1" };
+    if (tyrolBulletin.dangerRatings) {
+        tyrolBulletin.dangerRatings.forEach(r => {
+            const mapped = dangerMap[r.mainValue];
+            if (mapped && mapped.val > maxDanger.val) {
+                maxDanger = mapped;
+            }
+        });
+    }
+    
+    // Hauptgefahrenmuster extrahieren
+    const problemMap = {
+        "persistent_weak_layers": "Altschneeproblem",
+        "wet_snow": "Nassschnee",
+        "wind_slab": "Triebschnee",
+        "new_snow": "Neuschnee",
+        "gliding_snow": "Gleitschnee"
+    };
+    
+    let problemsHTML = "";
+    if (tyrolBulletin.avalancheProblems) {
+        const problemTags = tyrolBulletin.avalancheProblems
+            .map(p => problemMap[p.problemType] || p.problemType)
+            .filter((v, i, self) => self.indexOf(v) === i); // Eindeutige Werte
+            
+        problemsHTML = problemTags.map(tag => `<span class="avalanche-problem-tag">${tag}</span>`).join("");
+    }
+    
+    // Kurzbericht
+    const highlights = tyrolBulletin.avalancheActivity?.highlights || "Allgemein stabile Verhältnisse am Morgen, Gefahr feuchter Lawinen steigt tageszeitlich an.";
+    
+    container.innerHTML = `
+        <div class="avalanche-row">
+            <span class="avalanche-label">Gefahrenstufe:</span>
+            <span class="avalanche-badge ${maxDanger.class}">${maxDanger.name} (Stufe ${maxDanger.val})</span>
+        </div>
+        <div class="avalanche-comment">
+            <strong>Lagebeurteilung:</strong><br/>
+            ${highlights}
+        </div>
+        <div class="avalanche-row" style="flex-direction: column; align-items: flex-start; gap: 6px;">
+            <span class="avalanche-label">Hauptgefahren:</span>
+            <div class="avalanche-problems">
+                ${problemsHTML || "<span class='avalanche-problem-tag'>Keine akuten Probleme</span>"}
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 6px;">
+            <a href="https://avalanche.report" target="_blank" style="color: #60a5fa; font-size: 0.75rem; text-decoration: underline;">
+                Vollständiger Lawinenreport <i class="fa-solid fa-arrow-up-right-from-square"></i>
+            </a>
+        </div>
+    `;
+}
+
+// Hilfsfunktion: WMO-Codes auf Meteocons animierte SVGs mappen
+function getWeatherIconUrl(code, isNight) {
+    let filename = "cloudy";
+    
+    if (code === 0) {
+        filename = isNight ? "clear-night" : "clear-day";
+    } else if (code === 1 || code === 2) {
+        filename = isNight ? "partly-cloudy-night" : "partly-cloudy-day";
+    } else if (code === 3) {
+        filename = "cloudy";
+    } else if (code === 45 || code === 48) {
+        filename = "fog";
+    } else if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) {
+        filename = "rain";
+    } else if ([56, 57, 66, 67, 71, 73, 75, 77, 85, 86].includes(code)) {
+        filename = "snow";
+    } else if (code === 95) {
+        filename = "thunderstorms";
+    } else if (code === 96 || code === 99) {
+        filename = "hail";
+    }
+    
+    return `https://unpkg.com/@meteocons/svg@0.1.0/fill/${filename}.svg`;
+}
+
+// Hilfsfunktion: Bezirk aus Ortsname und Zusatzfeldern ermitteln (für Warnungs-Filterung)
+function getDistrictPrefix(locationName, admin3, admin4, postcode, county) {
+    const text = `${locationName} ${admin3 || ''} ${admin4 || ''} ${county || ''}`.toLowerCase();
+    
+    if (text.includes("innsbruck-stadt") || text.includes("innsbruck stadt") || (text.includes("innsbruck") && !text.includes("land"))) {
+        return "701";
+    }
+    if (text.includes("imst")) {
+        return "702";
+    }
+    if (text.includes("innsbruck-land") || text.includes("innsbruck land") || text.includes("patsch") || text.includes("neustift") || text.includes("stubai") || text.includes("sellrain") || text.includes("hall in tirol")) {
+        return "703";
+    }
+    if (text.includes("kitzbühel") || text.includes("kitzbuehel") || text.includes("kirchberg") || text.includes("st. johann")) {
+        return "704";
+    }
+    if (text.includes("kufstein") || text.includes("wörgl") || text.includes("wildschönau")) {
+        return "705";
+    }
+    if (text.includes("landeck") || text.includes("st. anton") || text.includes("ischgl") || text.includes("serfaus")) {
+        return "706";
+    }
+    if (text.includes("lienz") || text.includes("osttirol") || text.includes("kals") || text.includes("matrei")) {
+        return "707";
+    }
+    if (text.includes("reutte") || text.includes("ehrwald") || text.includes("außerfern") || text.includes("ausserfern")) {
+        return "708";
+    }
+    if (text.includes("schwaz") || text.includes("zillertal") || text.includes("tux") || text.includes("mayrhofen")) {
+        return "709";
+    }
+    
+    // Preset-Fallbacks
+    if (locationName === "Innsbruck") return "701";
+    if (locationName === "Zugspitze") return "708";
+    if (locationName === "Wildspitze") return "702";
+    if (locationName === "Patscherkofel") return "703";
+    if (locationName === "Olperer") return "709";
+    if (locationName === "Großglockner") return "707";
+    if (locationName === "Kitzbühel") return "704";
+    if (locationName === "St. Anton am Arlberg") return "706";
+    
+    return "701"; // Fallback auf Innsbruck-Stadt
 }
 
 // Stündliche Vorhersage rendern
@@ -534,13 +846,11 @@ function renderHourlyForecast() {
         const code = hourly.weather_code[i];
         const rainProb = Math.round(hourly.precipitation_probability[i]);
         
-        const weatherInfo = weatherCodes[code] || { icon: "fa-cloud" };
-        
         const card = document.createElement("div");
         card.className = "hourly-card";
         card.innerHTML = `
             <span class="hourly-time">${formattedTime}</span>
-            <i class="fa-solid ${weatherInfo.icon} hourly-icon"></i>
+            <img class="hourly-icon" src="${getWeatherIconUrl(code, false)}" alt="Wetter" />
             <span class="hourly-temp">${temp}°C</span>
             <span class="hourly-rain"><i class="fa-solid fa-droplet"></i> ${rainProb}%</span>
         `;
@@ -567,14 +877,14 @@ function renderDailyForecast() {
         const tempMax = Math.round(daily.temperature_2m_max[i]);
         const tempMin = Math.round(daily.temperature_2m_min[i]);
         const code = daily.weather_code[i];
-        const weatherInfo = weatherCodes[code] || { desc: "Wolkig", icon: "fa-cloud" };
+        const weatherInfo = weatherCodes[code] || { desc: "Wolkig" };
         
         const row = document.createElement("div");
         row.className = "daily-row";
         row.innerHTML = `
             <span class="daily-day">${dayName}</span>
             <div class="daily-icon-box">
-                <i class="fa-solid ${weatherInfo.icon} daily-icon"></i>
+                <img class="daily-icon" src="${getWeatherIconUrl(code, false)}" alt="Wetter" />
             </div>
             <span class="daily-desc">${weatherInfo.desc}</span>
             <div class="daily-temps">
@@ -686,23 +996,44 @@ function updateUVSafety(uv) {
 }
 
 // ==========================================
-// RainViewer Live-Radar Logik
+// LibreWXR Live-Radar Logik (Drop-in für RainViewer)
 // ==========================================
 function initRadar() {
-    // Abfrage der aktuellen Radar-Timestamps
-    fetch("https://api.rainviewer.com/public/weather-maps.json")
+    // Abfrage der aktuellen Radar-Timestamps von LibreWXR
+    fetch("https://api.librewxr.net/public/weather-maps.json")
         .then(res => res.json())
         .then(data => {
-            // RainViewer liefert ein JSON mit hosts und paths
-            if (data && data.radar && data.radar.past) {
-                state.radarHost = data.host;
-                state.radarTimes = data.radar.past; // Array aus Objekten { time: UnixTimestamp, path: "..." }
+            if (data && data.radar) {
+                state.radarHost = data.host || "https://api.librewxr.net";
                 
+                // Farbschemata-Dropdown befüllen
+                const schemeSelect = document.getElementById("radar-scheme-select");
+                schemeSelect.innerHTML = "";
+                if (data.colorSchemes) {
+                    data.colorSchemes.forEach(scheme => {
+                        const opt = document.createElement("option");
+                        opt.value = scheme.id;
+                        opt.textContent = scheme.name;
+                        if (scheme.id === state.selectedRadarSchemeId) {
+                            opt.selected = true;
+                        }
+                        schemeSelect.appendChild(opt);
+                    });
+                }
+                
+                // Past & Nowcast kombinieren
+                const past = data.radar.past || [];
+                const nowcast = data.radar.nowcast || [];
+                
+                past.forEach(f => f.isForecast = false);
+                nowcast.forEach(f => f.isForecast = true);
+                
+                state.radarTimes = [...past, ...nowcast];
                 setupRadarLayers();
             }
         })
         .catch(err => {
-            console.error("RainViewer Radardaten konnten nicht geladen werden:", err);
+            console.error("LibreWXR Radardaten konnten nicht geladen werden:", err);
             document.getElementById("radar-timestamp").textContent = "Radar offline";
         });
 }
@@ -712,23 +1043,23 @@ function setupRadarLayers() {
     state.radarLayers.forEach(layer => state.map.removeLayer(layer));
     state.radarLayers = [];
     
-    // Nimm maximal die letzten 12 Frames (2 Stunden, alle 10 Minuten ein Frame)
-    const frames = state.radarTimes.slice(-13); // wir nehmen 13, damit wir 12 Übergänge haben
-    
-    frames.forEach((frame, idx) => {
-        // Erzeuge den Tile-Layer für dieses Zeitfenster
-        const url = `${state.radarHost}${frame.path}/256/{z}/{x}/{y}/4/1_1.png`;
+    state.radarTimes.forEach((frame, idx) => {
+        // Erzeuge den Tile-Layer für dieses Zeitfenster mit dem gewählten Farbschema
+        const url = `${state.radarHost}${frame.path}/256/{z}/{x}/{y}/${state.selectedRadarSchemeId}/1_1.png`;
         const layer = L.tileLayer(url, {
             opacity: 0.0, // Zuerst alle unsichtbar
-            zIndex: 100 + idx
+            zIndex: 100 + idx,
+            maxZoom: 18
         });
         
         layer.addTo(state.map);
         state.radarLayers.push(layer);
     });
     
-    // Zeige das neueste (letzte) Radarbild
-    state.currentRadarIndex = state.radarLayers.length - 1;
+    // Standardmäßig auf die letzte Vergangenheitskachel stellen ("Jetzt")
+    const pastCount = state.radarTimes.filter(t => !t.isForecast).length;
+    state.currentRadarIndex = Math.max(0, pastCount - 1);
+    
     showRadarFrame(state.currentRadarIndex);
     
     // Slider anpassen
@@ -740,7 +1071,7 @@ function setupRadarLayers() {
 function showRadarFrame(index) {
     if (index < 0 || index >= state.radarLayers.length) return;
     
-    // Blende alle Layer aus (Opazität 0) und den aktuellen ein (Opazität 0.6)
+    // Blende alle Layer aus (Opazität 0) und den aktuellen ein
     state.radarLayers.forEach((layer, idx) => {
         if (idx === index) {
             layer.setOpacity(0.85);
@@ -752,12 +1083,13 @@ function showRadarFrame(index) {
     state.currentRadarIndex = index;
     
     // Zeitstempel aktualisieren
-    const frameObj = state.radarTimes.slice(-13)[index];
+    const frameObj = state.radarTimes[index];
     if (frameObj) {
         const date = new Date(frameObj.time * 1000);
         const hours = date.getHours().toString().padStart(2, '0');
         const mins = date.getMinutes().toString().padStart(2, '0');
-        document.getElementById("radar-timestamp").innerHTML = `<i class="fa-regular fa-clock"></i> Radar: ${hours}:${mins} Uhr`;
+        const labelSuffix = frameObj.isForecast ? " <span class='forecast-label'>(Prognose)</span>" : "";
+        document.getElementById("radar-timestamp").innerHTML = `<i class="fa-regular fa-clock"></i> Radar: ${hours}:${mins} Uhr${labelSuffix}`;
     }
     
     // Slider synchronisieren

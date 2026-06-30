@@ -442,9 +442,10 @@ body {
 }
 
 .hero-weather-icon {
-    font-size: 3.5rem;
-    color: #fff;
-    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.25));
+    width: 4.5rem;
+    height: 4.5rem;
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.15));
+    object-fit: contain;
 }
 
 .weather-details-grid {
@@ -968,9 +969,10 @@ body {
 }
 
 .hourly-icon {
-    font-size: 1.4rem;
-    color: #fff;
+    width: 2rem;
+    height: 2rem;
     margin: 4px 0;
+    object-fit: contain;
 }
 
 .hourly-temp {
@@ -1017,10 +1019,13 @@ body {
 .daily-icon-box {
     display: flex;
     justify-content: center;
+    align-items: center;
 }
 
 .daily-icon {
-    font-size: 1.2rem;
+    width: 2.2rem;
+    height: 2.2rem;
+    object-fit: contain;
 }
 
 .daily-desc {
@@ -1124,3 +1129,161 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+/* PWA Offline-Banner */
+.offline-banner {
+    background: rgba(220, 38, 38, 0.9);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    text-align: center;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.offline-banner.hidden {
+    display: none;
+}
+
+/* Radar Farbschema-Steuerung */
+.radar-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.radar-scheme-select {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.6);
+    color: #fff;
+    border: 1px solid var(--glass-border);
+    outline: none;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s;
+}
+
+.radar-scheme-select:hover {
+    background: rgba(15, 23, 42, 0.8);
+}
+
+.radar-scheme-select option {
+    background: #0f172a;
+    color: #fff;
+}
+
+/* Lawinenlagebericht Panel */
+.avalanche-panel {
+    margin-top: 16px;
+}
+
+.avalanche-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.avalanche-loading {
+    text-align: center;
+    padding: 15px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.avalanche-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--glass-border);
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.avalanche-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.avalanche-val {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.avalanche-badge {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+.avalanche-badge.level-1 { background-color: #22c55e; } /* Gering */
+.avalanche-badge.level-2 { background-color: #eab308; color: #000; } /* Mäßig */
+.avalanche-badge.level-3 { background-color: #f97316; } /* Erheblich */
+.avalanche-badge.level-4 { background-color: #ef4444; } /* Groß */
+.avalanche-badge.level-5 { background-color: #7f1d1d; } /* Sehr groß */
+
+.avalanche-comment {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: #e2e8f0;
+}
+
+.avalanche-problems {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.avalanche-problem-tag {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--glass-border);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+/* Offizielle Unwetterwarnungen */
+.alert-card.level-yellow {
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    border-left: 5px solid #eab308;
+}
+.alert-card.level-orange {
+    background: rgba(249, 115, 22, 0.12);
+    border: 1px solid rgba(249, 115, 22, 0.25);
+    border-left: 5px solid #f97316;
+}
+.alert-card.level-red {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-left: 5px solid #ef4444;
+}
+.alert-card.level-simulated {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-left: 5px solid #94a3b8;
+}
+

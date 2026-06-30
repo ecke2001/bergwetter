@@ -22,9 +22,17 @@
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
 </head>
 <body class="weather-clear-day">
     <div class="background-overlay"></div>
+    
+    <!-- Offline Status Banner -->
+    <div id="offline-banner" class="offline-banner hidden">
+        <i class="fa-solid fa-wifi-slash"></i> Offline-Modus &mdash; Letzte Aktualisierung: <span id="offline-time">--:--</span>
+    </div>
     
     <div class="app-container">
         <!-- Header -->
@@ -92,7 +100,7 @@
                             <span id="current-weather-desc" class="weather-desc">Lade Wetter...</span>
                         </div>
                         <div class="weather-hero-right">
-                            <i id="current-weather-icon" class="fa-solid fa-cloud-sun hero-weather-icon"></i>
+                            <img id="current-weather-icon" class="hero-weather-icon" src="https://unpkg.com/@meteocons/svg@0.1.0/fill/cloudy.svg" alt="Wetterlage" />
                         </div>
                     </div>
 
@@ -221,6 +229,19 @@
                         <p><strong>Antwort:</strong> 3-mal pro Minute ein Signal, dann 1 Minute Pause.</p>
                     </div>
                 </section>
+                
+                <!-- Lawinenlagebericht Tirol -->
+                <section id="avalanche-section" class="avalanche-panel glass-panel">
+                    <div class="emergency-header">
+                        <i class="fa-solid fa-mountain emergency-icon"></i>
+                        <h3>Lawinenlagebericht Tirol</h3>
+                    </div>
+                    <div id="avalanche-content" class="avalanche-content">
+                        <div class="avalanche-loading">
+                            <i class="fa-solid fa-spinner fa-spin"></i> Lade Lawinenbericht...
+                        </div>
+                    </div>
+                </section>
             </div>
 
             <!-- Rechter Bereich: Radar & Vorhersagen -->
@@ -229,7 +250,12 @@
                 <section class="radar-panel glass-panel">
                     <div class="radar-header">
                         <h3><i class="fa-solid fa-satellite-dish"></i> Live-Niederschlagsradar</h3>
-                        <div id="radar-timestamp" class="radar-timestamp">Lade Radar...</div>
+                        <div class="radar-header-controls">
+                            <select id="radar-scheme-select" class="radar-scheme-select glass-input" title="Farbschema wählen">
+                                <!-- Wird per JS befüllt -->
+                            </select>
+                            <div id="radar-timestamp" class="radar-timestamp">Lade Radar...</div>
+                        </div>
                     </div>
                     
                     <div class="radar-container">
@@ -251,10 +277,11 @@
                             <i class="fa-solid fa-play"></i>
                         </button>
                         <div class="radar-timeline-wrapper">
-                            <input type="range" id="radar-timeline" min="0" max="12" step="1" value="12">
+                            <input type="range" id="radar-timeline" min="0" max="18" step="1" value="12">
                             <div class="timeline-labels">
                                 <span>vor 2 Std</span>
-                                <span>Jetzt</span>
+                                <span class="timeline-now-label">Jetzt</span>
+                                <span>+60 Min (Prognose)</span>
                             </div>
                         </div>
                     </div>
@@ -306,7 +333,7 @@
         </main>
 
         <footer class="app-footer glass-panel">
-            <p>&copy; 2026 Bergwetter Tirol. Daten bereitgestellt von <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> und Radarbilder von <a href="https://www.rainviewer.com/api.html" target="_blank" rel="noopener">RainViewer</a>. Kartenmaterial von <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
+            <p>&copy; 2026 Bergwetter Tirol. Daten bereitgestellt von <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>, Radarbilder von <a href="https://librewxr.net/" target="_blank" rel="noopener">LibreWXR</a>, Warnungen von <a href="https://www.geosphere.at/" target="_blank" rel="noopener">GeoSphere Austria</a> &amp; <a href="https://avalanche.report/" target="_blank" rel="noopener">avalanche.report</a>. Kartenmaterial &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
         </footer>
     </div>
 

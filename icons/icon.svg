@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="#0f172a"/>
+  
+  <!-- Sun -->
+  <circle cx="340" cy="180" r="80" fill="url(#sunGlow)"/>
+  
+  <!-- Mountains -->
+  <!-- Far mountain -->
+  <polygon points="120,440 260,240 380,440" fill="#1e293b"/>
+  <!-- Near mountain -->
+  <polygon points="50,440 200,180 430,440" fill="#334155"/>
+  <!-- Foreground mountain -->
+  <polygon points="260,440 370,280 470,440" fill="#475569"/>
+  
+  <!-- Mountain snow caps -->
+  <!-- Snowy peak for near mountain -->
+  <polygon points="200,180 160,250 240,250" fill="#f8fafc"/>
+  
+  <!-- Cloud -->
+  <path d="M 320 280 A 40 40 0 0 1 380 250 A 50 50 0 0 1 450 290 A 40 40 0 0 1 420 360 L 320 360 A 30 30 0 0 1 320 280 Z" fill="#94a3b8" opacity="0.85"/>
+
+  <!-- Gradients -->
+  <defs>
+    <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="60%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </radialGradient>
+  </defs>
+</svg>
